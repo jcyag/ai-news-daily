@@ -14,6 +14,8 @@ from crawlers import (
     HackerNewsCrawler,
     RedditCrawler,
     SogouCrawler,
+    HuggingFaceCrawler,
+    NitterCrawler,
 )
 from crawlers.rss_crawler import create_all_rss_crawlers
 from processors import AIKeywordFilter, Deduplicator, NewsRanker
@@ -32,7 +34,14 @@ def collect_news() -> List[NewsItem]:
     """从各个来源收集新闻"""
     all_items: List[NewsItem] = []
     
-    # 1. RSS源爬取 (36氪, 虎嗅, TechCrunch, The Verge)
+    # 1. Hugging Face Papers (高质量学术源，优先)
+    logger.info("=" * 50)
+    logger.info("开始爬取 Hugging Face Papers...")
+    hf_crawler = HuggingFaceCrawler()
+    items = hf_crawler.safe_crawl()
+    all_items.extend(items)
+    
+    # 2. RSS源爬取 (36氪, 虎嗅, TechCrunch, The Verge)
     logger.info("=" * 50)
     logger.info("开始爬取RSS源...")
     rss_crawlers = create_all_rss_crawlers()
@@ -40,21 +49,28 @@ def collect_news() -> List[NewsItem]:
         items = crawler.safe_crawl()
         all_items.extend(items)
     
-    # 2. Hacker News
+    # 3. Hacker News
     logger.info("=" * 50)
     logger.info("开始爬取Hacker News...")
     hn_crawler = HackerNewsCrawler()
     items = hn_crawler.safe_crawl()
     all_items.extend(items)
     
-    # 3. Reddit
+    # 4. Reddit
     logger.info("=" * 50)
     logger.info("开始爬取Reddit...")
     reddit_crawler = RedditCrawler()
     items = reddit_crawler.safe_crawl()
     all_items.extend(items)
     
-    # 4. 搜狗搜索 (可能失败，但会尝试)
+    # 5. Twitter/X (via Nitter, 可能不稳定)
+    logger.info("=" * 50)
+    logger.info("开始爬取 Twitter (via Nitter)...")
+    nitter_crawler = NitterCrawler()
+    items = nitter_crawler.safe_crawl()
+    all_items.extend(items)
+    
+    # 6. 搜狗搜索 (可能失败，但会尝试)
     logger.info("=" * 50)
     logger.info("开始爬取搜狗搜索...")
     sogou_crawler = SogouCrawler()

@@ -9,6 +9,8 @@ from crawlers.rss_crawler import RSSCrawler
 from crawlers.hackernews import HackerNewsCrawler
 from crawlers.reddit import RedditCrawler
 from crawlers.sogou import SogouCrawler
+from crawlers.huggingface import HuggingFaceCrawler
+from crawlers.nitter import NitterCrawler
 
 __all__ = [
     'BaseCrawler',
@@ -17,4 +19,6 @@ __all__ = [
     'HackerNewsCrawler',
     'RedditCrawler',
     'SogouCrawler',
+    'HuggingFaceCrawler',
+    'NitterCrawler',
 ]

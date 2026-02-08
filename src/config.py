@@ -67,6 +67,25 @@ class CrawlerConfig:
     )
 
 
+# Nitter实例列表 (用于X/Twitter爬取)
+# 由于Nitter实例经常失效，配置多个备用
+NITTER_INSTANCES: List[str] = [
+    "https://nitter.poast.org",
+    "https://nitter.privacydev.net",
+    "https://nitter.net",
+    "https://nitter.cz",
+]
+
+# X/Twitter 关注列表 (用户名)
+TWITTER_USERS: List[str] = [
+    "_akhaliq",        # AK (Hugging Face) - AI论文速递，必关注
+    "ylecun",          # Yann LeCun - Meta首席AI科学家
+    "karpathy",        # Andrej Karpathy - 前Tesla/OpenAI
+    "OpenAI",          # OpenAI官方
+    "GoogleDeepMind",  # DeepMind官方
+    "AndrewYNg",       # 吴恩达
+]
+
 # RSS源配置
 RSS_SOURCES: Dict[str, Dict] = {
     "36kr": {
