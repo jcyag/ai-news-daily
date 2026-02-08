@@ -94,8 +94,14 @@ class CrawlerConfig:
 NITTER_INSTANCES: List[str] = [
     "https://nitter.poast.org",
     "https://nitter.privacydev.net",
-    "https://nitter.net",
-    "https://nitter.cz",
+    "https://nitter.moomoo.me",
+    "https://nitter.perennialte.ch",
+    "https://nitter.it",
+    "https://nitter.nl",
+    "https://nitter.mint.lgbt",
+    "https://nitter.dafrary7.io",
+    "https://nitter.rocks",
+    "https://nitter.eu",
 ]
 
 # X/Twitter 关注列表 (用户名)
