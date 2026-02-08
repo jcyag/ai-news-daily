@@ -10,6 +10,8 @@ on:
 jobs:
   send-news:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 允许修改仓库内容
     
     steps:
       - name: Checkout repository
@@ -26,7 +28,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      - name: Run AI News Crawler
+      - name: Run AI News Crawler & Check Subscriptions
         env:
           # 邮件配置
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
@@ -45,6 +47,14 @@ jobs:
           cd src
           python main.py
       
+      - name: Commit and Push new subscribers
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/subscribers.txt
+          # 只有在有变化时才 commit
+          git diff --quiet && git diff --staged --quiet || (git commit -m "docs: 自动更新订阅者列表 [skip ci]" && git push)
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

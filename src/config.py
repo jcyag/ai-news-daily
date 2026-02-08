@@ -1,11 +1,11 @@
 """
 配置管理模块
-从环境变量读取敏感配置，提供默认值
+从环境变量和本地文件读取配置
 """
 import os
 from dataclasses import dataclass, field
 from typing import List, Dict, Set
-
+from pathlib import Path
 
 @dataclass
 class EmailConfig:
@@ -19,8 +19,16 @@ class EmailConfig:
     
     @classmethod
     def from_env(cls) -> "EmailConfig":
+        # 1. 从环境变量获取初始列表
         recipients_str = os.getenv("EMAIL_TO", "")
-        recipients = [r.strip() for r in recipients_str.split(",") if r.strip()]
+        recipients = {r.strip() for r in recipients_str.split(",") if r.strip()}
+        
+        # 2. 从 data/subscribers.txt 获取动态列表
+        sub_file = Path(__file__).parent.parent / "data" / "subscribers.txt"
+        if sub_file.exists():
+            with open(sub_file, "r", encoding="utf-8") as f:
+                file_recipients = {line.strip() for line in f if line.strip()}
+                recipients.update(file_recipients)
         
         username = os.getenv("EMAIL_USER", "")
         
@@ -30,9 +38,8 @@ class EmailConfig:
             username=username,
             password=os.getenv("EMAIL_PASSWORD", ""),
             sender=os.getenv("EMAIL_FROM", username),
-            recipients=recipients,
+            recipients=list(recipients),
         )
-
 
 @dataclass
 class RedditConfig:
@@ -53,7 +60,6 @@ class RedditConfig:
     def is_configured(self) -> bool:
         return bool(self.client_id and self.client_secret)
 
-
 @dataclass
 class TranslationConfig:
     """翻译配置"""
@@ -72,15 +78,13 @@ class TranslationConfig:
     
     @property
     def is_configured(self) -> bool:
-        """检查是否已配置"""
         return bool(self.api_key)
-
 
 @dataclass
 class CrawlerConfig:
     """爬虫配置"""
     request_timeout: int = 30
-    request_delay: float = 2.0  # 请求间隔(秒)
+    request_delay: float = 2.0
     max_articles_per_source: int = 50
     user_agent: str = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -88,9 +92,6 @@ class CrawlerConfig:
         "Chrome/120.0.0.0 Safari/537.36"
     )
 
-
-# Nitter实例列表 (用于X/Twitter爬取)
-# 由于Nitter实例经常失效，配置多个备用
 NITTER_INSTANCES: List[str] = [
     "https://nitter.poast.org",
     "https://nitter.privacydev.net",
@@ -104,63 +105,23 @@ NITTER_INSTANCES: List[str] = [
     "https://nitter.eu",
 ]
 
-# X/Twitter 关注列表 (用户名)
 TWITTER_USERS: List[str] = [
-    # AI领域大V
-    "_akhaliq",        # AK (Hugging Face) - AI论文速递
-    "ylecun",          # Yann LeCun - Meta首席AI科学家
-    "karpathy",        # Andrej Karpathy - 前Tesla/OpenAI
-    "AndrewYNg",       # 吴恩达
-    
-    # 官方账号
-    "OpenAI",          # OpenAI官方
-    "GoogleDeepMind",  # DeepMind官方
-    "AnthropicAI",     # Anthropic官方
-    
-    # 用户自定义关注
-    "yan5xu",          # 用户添加
-    "YukerX",          # 用户添加
-    "antigravity",     # 用户添加
-    "Khazix0918",      # 用户添加
-    "vista8",          # 用户添加
-    "bcherny",         # 用户添加
-    "jiangydev",       # 用户添加
-    "ivanhzhao",       # 用户添加
-    "dotey",           # 宝玉 - AI/翻译
+    "_akhaliq", "ylecun", "karpathy", "AndrewYNg",
+    "OpenAI", "GoogleDeepMind", "AnthropicAI",
+    "yan5xu", "YukerX", "antigravity", "Khazix0918",
+    "vista8", "bcherny", "jiangydev", "ivanhzhao", "dotey"
 ]
 
-# RSS源配置
 RSS_SOURCES: Dict[str, Dict] = {
-    "36kr": {
-        "name": "36氪",
-        "url": "https://36kr.com/feed",
-        "language": "zh",
-    },
-    "huxiu": {
-        "name": "虎嗅",
-        "url": "https://www.huxiu.com/rss/0.xml",
-        "language": "zh",
-    },
-    "techcrunch": {
-        "name": "TechCrunch",
-        "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
-        "language": "en",
-    },
-    "theverge": {
-        "name": "The Verge",
-        "url": "https://www.theverge.com/rss/index.xml",
-        "language": "en",
-    },
+    "36kr": {"name": "36氪", "url": "https://36kr.com/feed", "language": "zh"},
+    "huxiu": {"name": "虎嗅", "url": "https://www.huxiu.com/rss/0.xml", "language": "zh"},
+    "techcrunch": {"name": "TechCrunch", "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "language": "en"},
+    "theverge": {"name": "The Verge", "url": "https://www.theverge.com/rss/index.xml", "language": "en"},
 }
 
-# 中文来源标识（这些来源不需要翻译）
-CHINESE_SOURCES: Set[str] = {
-    '36kr', 'huxiu', 'weibo', 'weixin',
-}
+CHINESE_SOURCES: Set[str] = {'36kr', 'huxiu', 'weibo', 'weixin'}
 
-# AI相关关键词
 AI_KEYWORDS: List[str] = [
-    # 英文关键词
     "AI", "artificial intelligence", "machine learning", "deep learning",
     "LLM", "GPT", "ChatGPT", "Claude", "Gemini", "Llama", "Mistral",
     "neural network", "transformer", "diffusion", "generative",
@@ -168,14 +129,12 @@ AI_KEYWORDS: List[str] = [
     "NVIDIA", "AI agent", "RAG", "fine-tuning", "RLHF", "reasoning",
     "multimodal", "vision model", "language model", "foundation model",
     "Copilot", "Cursor", "AI coding", "AI assistant",
-    # 中文关键词
     "人工智能", "大模型", "机器学习", "深度学习", "神经网络",
     "生成式AI", "智能体", "AI芯片", "算力", "大语言模型",
     "多模态", "AI助手", "AI编程", "智谱", "百川", "文心一言",
     "通义千问", "讯飞星火", "Kimi", "月之暗面",
 ]
 
-# 获取配置实例
 def get_email_config() -> EmailConfig:
     return EmailConfig.from_env()
 

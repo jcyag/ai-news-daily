@@ -21,6 +21,7 @@ from crawlers import (
 from crawlers.rss_crawler import create_all_rss_crawlers
 from processors import AIKeywordFilter, Deduplicator, NewsRanker, Translator
 from notifier import EmailSender
+from notifier.subscriber_manager import SubscriberManager
 from config import get_translation_config
 
 # 配置日志
@@ -128,6 +129,12 @@ def process_news(items: List[NewsItem], top_n: int = 30) -> List[NewsItem]:
 def main():
     logger.info("=" * 60)
     logger.info("AI资讯日报 - 开始运行")
+    # 0. 检查新订阅
+    try:
+        sub_manager = SubscriberManager()
+        sub_manager.check_new_subscriptions()
+    except Exception as e:
+        logger.error(f"检查订阅失败: {e}")
     
     try:
         all_news = collect_news()
