@@ -1,0 +1,17 @@
+# AI资讯爬取和邮件推送
+
+# HTTP请求
+requests>=2.31.0
+
+# RSS解析
+feedparser>=6.0.10
+
+# HTML解析
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
+# 模板引擎
+Jinja2>=3.1.2
+
+# 日期处理
+python-dateutil>=2.8.2
