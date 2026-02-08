@@ -1,16 +1,15 @@
 """
-Nitter (Twitter) 爬虫
-通过轮询 Nitter 实例获取 Twitter RSS
-
-注意：由于 X/Twitter 的反爬策略，Nitter 实例经常失效。
-此爬虫会尝试多个实例，如果全部失败会优雅降级。
+Twitter/X 爬虫 (通过 Nitter 实例)
+由于 Twitter 官方 API 限制，使用 Nitter 实例的 RSS 订阅作为替代
 """
-import sys
 import logging
 import random
-from datetime import datetime
+import sys
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
+from email.utils import parsedate_to_datetime
 
 import feedparser
 
@@ -23,135 +22,102 @@ logger = logging.getLogger(__name__)
 
 
 class NitterCrawler(BaseCrawler):
-    """Nitter/Twitter 爬虫"""
+    """Twitter 爬虫 - 通过 Nitter 获取"""
     
     def __init__(self):
-        super().__init__("twitter", "Twitter (via Nitter)")
-        self.instances = NITTER_INSTANCES
+        super().__init__("twitter", "Twitter/X")
         self.users = TWITTER_USERS
+        self.instances = NITTER_INSTANCES
     
     def crawl(self) -> List[NewsItem]:
-        """爬取所有配置的 Twitter 用户"""
+        """爬取关注用户的推文"""
         all_items = []
         
-        if not self.instances:
-            logger.warning("[Nitter] 没有配置实例，跳过")
+        # 随机打乱用户顺序，分摊压力
+        users_to_crawl = self.users[:]
+        random.shuffle(users_to_crawl)
+        
+        # 选一个可用的 Nitter 实例
+        instance = self._get_working_instance()
+        if not instance:
+            logger.error("无法找到可用的 Nitter 实例，跳过 Twitter 爬取")
             return []
-        
-        if not self.users:
-            logger.warning("[Nitter] 没有配置用户，跳过")
-            return []
-        
-        # 找到一个可用的实例
-        working_instance = self._find_working_instance()
-        if not working_instance:
-            logger.warning("[Nitter] 所有实例均不可用，跳过 Twitter 数据源")
-            return []
-        
-        logger.info(f"[Nitter] 使用实例: {working_instance}")
-        
-        for user in self.users:
-            try:
-                items = self._crawl_user(working_instance, user)
-                all_items.extend(items)
-                self._delay()
-            except Exception as e:
-                logger.warning(f"[Nitter] 获取 @{user} 失败: {e}")
-                continue
             
+        logger.info(f"使用 Nitter 实例: {instance}")
+        
+        for user in users_to_crawl:
+            try:
+                user_items = self._crawl_user(instance, user)
+                all_items.extend(user_items)
+                # 稍微延迟，避免被实例封禁
+                time.sleep(1)
+            except Exception as e:
+                logger.warning(f"爬取用户 @{user} 失败: {e}")
+                continue
+                
         return all_items
     
-    def _find_working_instance(self) -> Optional[str]:
-        """找到一个可用的 Nitter 实例"""
-        # 随机打乱实例顺序，负载均衡
-        instances = list(self.instances)
-        random.shuffle(instances)
+    def _get_working_instance(self) -> Optional[str]:
+        """寻找一个可用的 Nitter 实例"""
+        test_instances = self.instances[:]
+        random.shuffle(test_instances)
         
-        for instance in instances:
+        for instance in test_instances:
             try:
-                # 尝试访问实例首页
-                response = self.session.get(
-                    instance,
-                    timeout=10,
-                    allow_redirects=True,
-                )
-                if response.status_code == 200:
+                # 尝试访问一个知名账号确认实例存活
+                resp = self.session.get(f"{instance}/jack/rss", timeout=5)
+                if resp.status_code == 200:
                     return instance
-            except Exception as e:
-                logger.debug(f"[Nitter] 实例 {instance} 不可用: {e}")
+            except Exception:
                 continue
-        
         return None
-    
+
     def _crawl_user(self, instance: str, username: str) -> List[NewsItem]:
-        """爬取单个用户的推文"""
+        """爬取单个用户的 RSS 订阅"""
         rss_url = f"{instance}/{username}/rss"
-        
-        logger.info(f"[Nitter] 获取 @{username}...")
-        
-        # 使用 feedparser 解析 RSS
-        feed = feedparser.parse(
-            rss_url,
-            agent=self.config.user_agent,
-        )
-        
-        if feed.bozo and not feed.entries:
-            raise Exception(f"RSS解析错误: {feed.bozo_exception}")
+        feed = feedparser.parse(rss_url)
         
         items = []
-        for entry in feed.entries[:5]:  # 每个用户只取最新5条
-            item = self._parse_entry(entry, username)
-            if item:
-                items.append(item)
+        time_threshold = datetime.now() - timedelta(hours=24)
         
-        if items:
-            logger.info(f"[Nitter] @{username} 获取 {len(items)} 条推文")
-        
-        return items
-    
-    def _parse_entry(self, entry, username: str) -> Optional[NewsItem]:
-        """解析单个推文"""
-        # Nitter RSS 的 title 通常就是推文内容（截断）
-        title = entry.get("title", "").strip()
-        link = entry.get("link", "")
-        
-        if not title:
-            return None
-        
-        # 清理标题中的换行
-        title = title.replace("\n", " ").strip()
-        
-        # 限制标题长度
-        if len(title) > 100:
-            title = title[:97] + "..."
-        
-        # 完整内容作为摘要
-        description = entry.get("description", "")
-        
-        # 时间处理
-        pub_date = None
-        if hasattr(entry, "published_parsed") and entry.published_parsed:
+        for entry in feed.entries:
             try:
-                pub_date = datetime(*entry.published_parsed[:6])
-            except:
-                pass
-        
-        # 转换链接为 Twitter 原链接（可选）
-        twitter_link = link
-        for instance in self.instances:
-            if instance.replace("https://", "") in link:
-                twitter_link = link.replace(
-                    instance.replace("https://", "").split("/")[0],
-                    "twitter.com"
+                # 1. 严格的时间过滤
+                pub_date = self._parse_date(entry)
+                if pub_date:
+                    # 处理时区或 naïve datetime
+                    pub_date_naive = pub_date.replace(tzinfo=None)
+                    if pub_date_naive < time_threshold:
+                        continue # 超过24小时，跳过
+
+                title = entry.get("title", "")
+                # 清理推文标题 (Nitter 会在标题加上用户名)
+                clean_title = re.sub(r'^@?\w+:', '', title).strip()
+                
+                # 如果是转发(RT)，可以根据需要过滤或保留
+                is_rt = title.startswith("RT by") or "re-tweeted" in title.lower()
+                
+                item = NewsItem(
+                    title=f"@{username}: {clean_title[:100]}",
+                    url=entry.get("link", ""),
+                    source=self.source_id,
+                    source_name=f"Twitter (@{username})",
+                    pub_date=pub_date,
+                    summary=entry.get("summary", ""),
                 )
-                break
-        
-        return NewsItem(
-            title=f"@{username}: {title}",
-            url=twitter_link,
-            source=self.source_id,
-            source_name=f"Twitter @{username}",
-            pub_date=pub_date,
-            summary=description[:500] if description else "",
-            score=80.0,
-        )
+                items.append(item)
+                
+            except Exception:
+                continue
+                
+        return items
+
+    def _parse_date(self, entry) -> Optional[datetime]:
+        """解析日期"""
+        date_str = entry.get("published")
+        if not date_str:
+            return None
+        try:
+            return parsedate_to_datetime(date_str)
+        except Exception:
+            return None

@@ -5,7 +5,7 @@ RSS通用爬虫
 import sys
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 from email.utils import parsedate_to_datetime
@@ -35,7 +35,6 @@ class RSSCrawler(BaseCrawler):
     
     def crawl(self) -> List[NewsItem]:
         """爬取RSS源"""
-        # 使用feedparser解析RSS
         feed = feedparser.parse(
             self.url,
             agent=self.config.user_agent,
@@ -58,16 +57,20 @@ class RSSCrawler(BaseCrawler):
     
     def _parse_entry(self, entry) -> Optional[NewsItem]:
         """解析单个RSS条目"""
+        # 1. 预解析日期，检查是否在24小时内
+        pub_date = self._parse_date(entry)
+        if pub_date:
+            now = datetime.now(pub_date.tzinfo) if pub_date.tzinfo else datetime.now()
+            if now - pub_date > timedelta(hours=24):
+                return None # 超过24小时，直接跳过
+        
         title = entry.get("title", "").strip()
         link = entry.get("link", "").strip()
         
         if not title or not link:
             return None
         
-        # 解析发布时间
-        pub_date = self._parse_date(entry)
-        
-        # 解析摘要 - 移除HTML标签
+        # 2. 解析摘要 - 只有时间符合才进行昂贵的 HTML 清理
         summary = self._clean_html(
             entry.get("summary", "") or 
             entry.get("description", "") or
@@ -95,13 +98,11 @@ class RSSCrawler(BaseCrawler):
             return None
         
         try:
-            # 尝试使用email.utils解析RFC 2822格式
             return parsedate_to_datetime(date_str)
         except (ValueError, TypeError):
             pass
         
         try:
-            # 尝试feedparser的时间结构
             if hasattr(entry, "published_parsed") and entry.published_parsed:
                 return datetime(*entry.published_parsed[:6])
             if hasattr(entry, "updated_parsed") and entry.updated_parsed:
@@ -112,21 +113,18 @@ class RSSCrawler(BaseCrawler):
         return None
     
     def _clean_html(self, html_content: str) -> str:
-        """清理HTML标签，提取纯文本"""
+        """清理HTML标签"""
         if not html_content:
             return ""
         
         try:
             soup = BeautifulSoup(html_content, "html.parser")
-            # 移除script和style标签
             for tag in soup(["script", "style"]):
                 tag.decompose()
             text = soup.get_text(separator=" ", strip=True)
-            # 压缩多余空白
             text = re.sub(r"\s+", " ", text)
             return text.strip()
         except Exception:
-            # 如果解析失败，使用简单的正则清理
             text = re.sub(r"<[^>]+>", " ", html_content)
             text = re.sub(r"\s+", " ", text)
             return text.strip()

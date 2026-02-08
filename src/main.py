@@ -5,7 +5,7 @@ AI资讯日报 - 主程序入口
 """
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List
 
 from crawlers import (
@@ -33,61 +33,69 @@ logger = logging.getLogger(__name__)
 
 
 def collect_news() -> List[NewsItem]:
-    """从各个来源收集新闻"""
+    """从各个来源收集新闻并进行 24 小时过滤"""
     all_items: List[NewsItem] = []
+    now = datetime.now()
+    time_threshold = now - timedelta(hours=24)
     
-    # 1. Hugging Face Papers (高质量学术源，优先)
+    # 定义采集函数
+    def collect_from_crawler(crawler_instance):
+        try:
+            items = crawler_instance.safe_crawl()
+            # 24小时过滤逻辑
+            filtered = []
+            for item in items:
+                # 如果有发布时间且在24小时内，或者没有发布时间（视作最新）则保留
+                if item.pub_date:
+                    # 确保是 offset-naive 或处理时区
+                    if item.pub_date.replace(tzinfo=None) > time_threshold:
+                        filtered.append(item)
+                else:
+                    filtered.append(item)
+            return filtered
+        except Exception as e:
+            logger.error(f"采集出错: {e}")
+            return []
+
+    # 1. Hugging Face Papers
     logger.info("=" * 50)
     logger.info("开始爬取 Hugging Face Papers...")
-    hf_crawler = HuggingFaceCrawler()
-    items = hf_crawler.safe_crawl()
-    all_items.extend(items)
+    all_items.extend(collect_from_crawler(HuggingFaceCrawler()))
     
-    # 2. RSS源爬取 (36氪, 虎嗅, TechCrunch, The Verge)
+    # 2. RSS源
     logger.info("=" * 50)
     logger.info("开始爬取RSS源...")
     rss_crawlers = create_all_rss_crawlers()
     for crawler in rss_crawlers:
-        items = crawler.safe_crawl()
-        all_items.extend(items)
+        all_items.extend(collect_from_crawler(crawler))
     
     # 3. Hacker News
     logger.info("=" * 50)
     logger.info("开始爬取Hacker News...")
-    hn_crawler = HackerNewsCrawler()
-    items = hn_crawler.safe_crawl()
-    all_items.extend(items)
+    all_items.extend(collect_from_crawler(HackerNewsCrawler()))
     
     # 4. Reddit
     logger.info("=" * 50)
     logger.info("开始爬取Reddit...")
-    reddit_crawler = RedditCrawler()
-    items = reddit_crawler.safe_crawl()
-    all_items.extend(items)
+    all_items.extend(collect_from_crawler(RedditCrawler()))
     
-    # 5. Twitter/X (via Nitter, 可能不稳定)
+    # 5. Twitter/X
     logger.info("=" * 50)
     logger.info("开始爬取 Twitter (via Nitter)...")
-    nitter_crawler = NitterCrawler()
-    items = nitter_crawler.safe_crawl()
-    all_items.extend(items)
+    all_items.extend(collect_from_crawler(NitterCrawler()))
     
-    # 6. 微信公众号 (via 今日热榜)
+    # 6. 微信公众号
     logger.info("=" * 50)
     logger.info("开始爬取微信公众号...")
-    wechat_crawler = WeixinCrawler()
-    items = wechat_crawler.safe_crawl()
-    all_items.extend(items)
+    all_items.extend(collect_from_crawler(WeixinCrawler()))
     
-    # 7. 微博热搜 (via 今日热榜)
+    # 7. 微博热搜
     logger.info("=" * 50)
     logger.info("开始爬取微博热搜...")
-    weibo_crawler = WeiboCrawler()
-    items = weibo_crawler.safe_crawl()
-    all_items.extend(items)
+    all_items.extend(collect_from_crawler(WeiboCrawler()))
     
     logger.info("=" * 50)
-    logger.info(f"共收集 {len(all_items)} 条原始新闻")
+    logger.info(f"共收集 {len(all_items)} 条 24 小时内的原始新闻")
     
     return all_items
 
@@ -114,7 +122,7 @@ def process_news(items: List[NewsItem], top_n: int = 30) -> List[NewsItem]:
     ranker = NewsRanker(top_n=top_n)
     top_items = ranker.rank(unique_items)
     
-    # 4. 翻译（新增步骤）
+    # 4. 翻译
     trans_config = get_translation_config()
     if trans_config.enabled and trans_config.is_configured:
         logger.info("=" * 50)
@@ -126,10 +134,7 @@ def process_news(items: List[NewsItem], top_n: int = 30) -> List[NewsItem]:
         except Exception as e:
             logger.error(f"翻译过程出错，将发送未翻译版本: {e}")
     else:
-        if not trans_config.enabled:
-            logger.info("翻译功能已禁用")
-        else:
-            logger.warning("翻译 API 未配置，跳过翻译")
+        logger.warning("翻译未启用或未配置")
     
     return top_items
 
@@ -137,15 +142,11 @@ def process_news(items: List[NewsItem], top_n: int = 30) -> List[NewsItem]:
 def send_email(items: List[NewsItem]) -> bool:
     """发送邮件"""
     if not items:
-        logger.warning("没有新闻可发送")
         return False
     
-    logger.info("正在发送邮件...")
     sender = EmailSender()
-    
     today = datetime.now().strftime("%Y-%m-%d")
     subject = f"AI资讯日报 - {today}"
-    
     return sender.send(items, subject=subject)
 
 
@@ -157,42 +158,34 @@ def main():
     logger.info("=" * 60)
     
     try:
-        # 1. 收集新闻
+        # 1. 收集新闻 (内含24h过滤)
         all_news = collect_news()
         
         if not all_news:
             logger.error("未能获取任何新闻，退出")
-            sys.exit(1)
+            sys.exit(0) # 正常退出，只是今天没新闻
         
         # 2. 处理新闻（含翻译）
         top_news = process_news(all_news, top_n=30)
         
         if not top_news:
             logger.error("处理后没有有效新闻，退出")
-            sys.exit(1)
+            sys.exit(0)
         
-        # 3. 打印结果预览
+        # 3. 预览
         logger.info("=" * 60)
-        logger.info(f"最终选出 {len(top_news)} 条新闻:")
         for i, item in enumerate(top_news, 1):
-            title_display = item.title_zh if item.title_zh else item.title
-            logger.info(f"  {i}. [{item.source_name}] {title_display[:50]}...")
+            title = item.title_zh if item.title_zh else item.title
+            logger.info(f"  {i}. [{item.source_name}] {title[:50]}...")
         
-        # 4. 发送邮件
-        logger.info("=" * 60)
+        # 4. 发送
         success = send_email(top_news)
-        
         if success:
-            logger.info("=" * 60)
-            logger.info("任务完成！邮件已发送")
+            logger.info("任务完成！")
             sys.exit(0)
         else:
-            logger.error("邮件发送失败")
             sys.exit(1)
             
-    except KeyboardInterrupt:
-        logger.info("用户中断")
-        sys.exit(0)
     except Exception as e:
         logger.exception(f"运行出错: {e}")
         sys.exit(1)
