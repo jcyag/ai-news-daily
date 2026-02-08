@@ -13,10 +13,10 @@ from crawlers import (
     RSSCrawler,
     HackerNewsCrawler,
     RedditCrawler,
-    SogouCrawler,
     HuggingFaceCrawler,
     NitterCrawler,
     WeixinCrawler,
+    WeiboCrawler,
 )
 from crawlers.rss_crawler import create_all_rss_crawlers
 from processors import AIKeywordFilter, Deduplicator, NewsRanker
@@ -78,11 +78,11 @@ def collect_news() -> List[NewsItem]:
     items = wechat_crawler.safe_crawl()
     all_items.extend(items)
     
-    # 7. 搜狗搜索 (可能失败，但会尝试)
+    # 7. 微博热搜 (via 今日热榜)
     logger.info("=" * 50)
-    logger.info("开始爬取搜狗搜索...")
-    sogou_crawler = SogouCrawler()
-    items = sogou_crawler.safe_crawl()
+    logger.info("开始爬取微博热搜...")
+    weibo_crawler = WeiboCrawler()
+    items = weibo_crawler.safe_crawl()
     all_items.extend(items)
     
     logger.info("=" * 50)
