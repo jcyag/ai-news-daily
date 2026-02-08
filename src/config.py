@@ -78,12 +78,27 @@ NITTER_INSTANCES: List[str] = [
 
 # X/Twitter 关注列表 (用户名)
 TWITTER_USERS: List[str] = [
-    "_akhaliq",        # AK (Hugging Face) - AI论文速递，必关注
+    # AI领域大V
+    "_akhaliq",        # AK (Hugging Face) - AI论文速递
     "ylecun",          # Yann LeCun - Meta首席AI科学家
     "karpathy",        # Andrej Karpathy - 前Tesla/OpenAI
+    "AndrewYNg",       # 吴恩达
+    
+    # 官方账号
     "OpenAI",          # OpenAI官方
     "GoogleDeepMind",  # DeepMind官方
-    "AndrewYNg",       # 吴恩达
+    "AnthropicAI",     # Anthropic官方
+    
+    # 用户自定义关注
+    "yan5xu",          # 用户添加
+    "YukerX",          # 用户添加
+    "antigravity",     # 用户添加
+    "Khazix0918",      # 用户添加
+    "vista8",          # 用户添加
+    "bcherny",         # 用户添加
+    "jiangydev",       # 用户添加
+    "ivanhzhao",       # 用户添加
+    "dotey",           # 宝玉 - AI/翻译
 ]
 
 # RSS源配置
