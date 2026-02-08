@@ -147,7 +147,7 @@ def main():
             sys.exit(1)
         
         # 2. 处理新闻
-        top_news = process_news(all_news, top_n=10)
+        top_news = process_news(all_news, top_n=30)
         
         if not top_news:
             logger.error("处理后没有有效新闻，退出")
