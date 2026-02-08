@@ -1,6 +1,6 @@
 """
-新闻翻译模块 - 优化版
-使用 Google Cloud Translation REST API 直接调用，确保兼容性
+新闻翻译模块 - 增强诊断版
+使用 Google Cloud Translation REST API (POST)
 """
 import logging
 import requests
@@ -18,18 +18,20 @@ from config import TranslationConfig, CHINESE_SOURCES
 
 logger = logging.getLogger(__name__)
 
-
 class Translator:
-    """新闻翻译器 - 使用 Google Cloud Translation REST API"""
-    
     def __init__(self, config: TranslationConfig):
         self.config = config
         self.api_url = "https://translation.googleapis.com/language/translate/v2"
+        
+        # 诊断日志
+        if not self.config.api_key:
+            logger.error("!!! 翻译配置错误: 未检测到 GOOGLE_TRANSLATE_API_KEY !!!")
+        else:
+            masked_key = self.config.api_key[:4] + "*" * 10 + self.config.api_key[-4:]
+            logger.info(f"翻译器初始化成功，使用 Key: {masked_key}")
     
     def translate_batch(self, items: List[NewsItem]) -> List[NewsItem]:
-        """批量翻译新闻列表"""
         if not self.config.api_key:
-            logger.warning("未配置 GOOGLE_TRANSLATE_API_KEY，跳过翻译")
             return items
         
         translated_count = 0
@@ -37,60 +39,60 @@ class Translator:
         
         for item in items:
             try:
-                # 智能检测：如果是中文源或标题包含中文，跳过
+                # 1. 检查是否已经是中文源
                 if item.source.lower() in CHINESE_SOURCES or self._is_mostly_chinese(item.title):
                     item.is_chinese_source = True
                     skipped_count += 1
                     continue
                 
-                # 翻译标题
-                item.title_zh = self._translate_text(item.title)
-                
-                # 翻译摘要
-                if item.summary:
-                    item.summary_zh = self._translate_text(item.summary)
-                
-                if item.title_zh:
+                # 2. 执行翻译
+                title_zh = self._translate_text(item.title)
+                if title_zh:
+                    item.title_zh = title_zh
                     translated_count += 1
                     
+                    # 摘要有内容才翻译
+                    if item.summary and len(item.summary) > 5:
+                        item.summary_zh = self._translate_text(item.summary)
+                
             except Exception as e:
-                logger.error(f"翻译单条新闻失败 [{item.title[:20]}...]: {e}")
+                logger.error(f"处理翻译时发生异常: {e}")
         
-        logger.info(f"翻译统计: 成功 {translated_count} 条, 跳过 {skipped_count} 条")
+        logger.info(f"翻译任务结束: 成功 {translated_count} 条, 跳过 {skipped_count} 条")
         return items
     
     def _translate_text(self, text: str) -> str:
-        """调用 REST API 翻译文本"""
         if not text or not text.strip():
             return ""
             
         try:
-            params = {
+            # 使用 POST 更加稳健
+            data = {
                 'q': text,
                 'target': 'zh-CN',
-                'key': self.config.api_key,
-                'format': 'text'  # 保持纯文本格式，避免 HTML 标签干扰
+                'format': 'text'
             }
+            # Key 作为 URL 参数
+            url = f"{self.api_url}?key={self.config.api_key}"
             
-            response = requests.get(self.api_url, params=params, timeout=10)
+            response = requests.post(url, json=data, timeout=10)
             
             if response.status_code == 200:
                 result = response.json()
-                translated_text = result['data']['translations'][0]['translatedText']
-                # 解码 HTML 实体
-                return html.unescape(translated_text)
+                translated = result['data']['translations'][0]['translatedText']
+                return html.unescape(translated)
             else:
-                logger.error(f"Google 翻译接口错误: {response.status_code} - {response.text}")
+                logger.error(f"Google API 返回错误: {response.status_code} - {response.text}")
                 return ""
                 
         except Exception as e:
-            logger.error(f"请求翻译接口异常: {e}")
+            logger.error(f"请求 Google 翻译异常: {e}")
             return ""
     
     def _is_mostly_chinese(self, text: str) -> bool:
-        """简单判断文本是否包含中文字符"""
         if not text:
             return False
-        # 如果包含任何中文字符且占比超过一定程度，认为不需要翻译
+        # 匹配中文字符
         chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
-        return chinese_chars > 0 and (chinese_chars / len(text) > 0.2)
+        # 如果中文字符超过 2 个，通常就不需要再翻译标题了
+        return chinese_chars > 2
