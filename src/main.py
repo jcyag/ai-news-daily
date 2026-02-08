@@ -132,7 +132,7 @@ def main():
     # 0. 检查新订阅
     try:
         sub_manager = SubscriberManager()
-        sub_manager.check_new_subscriptions()
+        sub_manager.process_all_requests()
     except Exception as e:
         logger.error(f"检查订阅失败: {e}")
     
