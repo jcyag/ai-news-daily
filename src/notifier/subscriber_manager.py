@@ -9,7 +9,7 @@ from email.utils import formatdate
 from pathlib import Path
 from typing import Set, List
 
-# 导入配置和邮件发送逻辑
+# 导入配置
 from config import get_email_config
 
 logger = logging.getLogger(__name__)
@@ -32,49 +32,92 @@ class SubscriberManager:
             return
 
         try:
+            logger.info(f"正在连接 IMAP 服务器: {self.imap_server}...")
             mail = imaplib.IMAP4_SSL(self.imap_server)
             mail.login(self.user, self.password)
             mail.select("inbox")
 
-            # 1. 处理订阅请求
-            new_subscribers = self._get_emails_by_keyword(mail, "订阅AI资讯日报")
-            # 2. 处理取消订阅请求
-            unsubscribers = self._get_emails_by_keyword(mail, "取消订阅AI资讯日报")
+            # 1. 查找所有未读邮件
+            status, messages = mail.search(None, 'UNSEEN')
+            if status != 'OK':
+                logger.info("未能获取未读邮件列表")
+                return
+            
+            message_nums = messages[0].split()
+            logger.info(f"发现 {len(message_nums)} 封未读邮件，正在扫描关键字...")
+
+            new_subs = set()
+            unsub_subs = set()
+
+            for num in message_nums:
+                try:
+                    res, msg_data = mail.fetch(num, '(RFC822)')
+                    for response_part in msg_data:
+                        if isinstance(response_part, tuple):
+                            msg = email.message_from_bytes(response_part[1])
+                            
+                            # 解析标题
+                            subject_raw = msg.get("Subject", "")
+                            subject = ""
+                            try:
+                                from email.header import decode_header
+                                subject_parts = decode_header(subject_raw)
+                                for part, encoding in subject_parts:
+                                    if isinstance(part, bytes):
+                                        subject += part.decode(encoding or 'utf-8', errors='ignore')
+                                    else:
+                                        subject += part
+                            except Exception:
+                                subject = str(subject_raw)
+                            
+                            # 获取正文
+                            body = ""
+                            if msg.is_multipart():
+                                for part in msg.walk():
+                                    if part.get_content_type() == "text/plain":
+                                        try:
+                                            body_bytes = part.get_payload(decode=True)
+                                            if isinstance(body_bytes, bytes):
+                                                body = body_bytes.decode('utf-8', errors='ignore')
+                                        except Exception:
+                                            pass
+                                        break
+                            else:
+                                try:
+                                    body_bytes = msg.get_payload(decode=True)
+                                    if isinstance(body_bytes, bytes):
+                                        body = body_bytes.decode('utf-8', errors='ignore')
+                                except Exception:
+                                    pass
+
+                            # 合并并清理文本，用于匹配
+                            full_content = (subject + body).replace(" ", "").replace("\n", "").replace("\r", "")
+                            
+                            # 提取发件人
+                            from_ = msg.get("From", "")
+                            email_addr_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', from_)
+                            if not email_addr_match:
+                                continue
+                            
+                            email_addr = email_addr_match.group(0).lower()
+
+                            if "订阅AI资讯日报" in full_content:
+                                logger.info(f"匹配到订阅请求: {email_addr}")
+                                new_subs.add(email_addr)
+                                mail.store(num, '+FLAGS', '\\Seen') # 标记已读
+                            elif "取消订阅AI资讯日报" in full_content:
+                                logger.info(f"匹配到取消订阅请求: {email_addr}")
+                                unsub_subs.add(email_addr)
+                                mail.store(num, '+FLAGS', '\\Seen') # 标记已读
+                except Exception as e:
+                    logger.error(f"解析邮件 {num} 失败: {e}")
 
             mail.logout()
-
-            # 更新文件并发送反馈
-            self._handle_updates(new_subscribers, unsubscribers)
+            self._handle_updates(new_subs, unsub_subs)
 
         except Exception as e:
-            logger.error(f"处理订阅/取消订阅请求失败: {e}")
-
-    def _get_emails_by_keyword(self, mail, keyword: str) -> Set[str]:
-        """根据关键字搜索未读邮件并提取发件人"""
-        emails = set()
-        # 搜索包含关键字的未读邮件
-        search_query = f'(UNSEEN SUBJECT "{keyword}")'
-        status, messages = mail.search(None, search_query)
-        
-        if status != 'OK' or not messages[0]:
-            return emails
-
-        for num in messages[0].split():
-            try:
-                res, msg_data = mail.fetch(num, '(RFC822)')
-                for response_part in msg_data:
-                    if isinstance(response_part, tuple):
-                        msg = email.message_from_bytes(response_part[1])
-                        from_ = msg.get("From")
-                        email_addr = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', from_)
-                        if email_addr:
-                            emails.add(email_addr.group(0).lower())
-                # 将邮件标记为已读，避免下次重复处理
-                mail.store(num, '+FLAGS', '\\Seen')
-            except Exception as e:
-                logger.error(f"解析邮件条目失败: {e}")
-                
-        return emails
+            logger.error(f"处理订阅请求时发生异常: {e}")
+            logger.error("请确保 Gmail 已开启 IMAP 服务，并使用了正确的‘应用专用密码’。")
 
     def _handle_updates(self, new_subs: Set[str], unsub_subs: Set[str]):
         """执行文件更新并发送通知"""
