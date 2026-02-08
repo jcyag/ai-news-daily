@@ -29,6 +29,11 @@ class NewsItem:
     summary: str = ""
     score: float = 0.0  # 用于排序的分数
     
+    # 翻译相关字段
+    title_zh: str = ""           # 中文标题（翻译后）
+    summary_zh: str = ""         # 中文摘要（翻译后）
+    is_chinese_source: bool = False  # 是否原本就是中文源
+    
     def __post_init__(self):
         # 清理标题和摘要中的空白字符
         self.title = self.title.strip()
@@ -46,6 +51,9 @@ class NewsItem:
             "pub_date": self.pub_date.isoformat() if self.pub_date else None,
             "summary": self.summary,
             "score": self.score,
+            "title_zh": self.title_zh,
+            "summary_zh": self.summary_zh,
+            "is_chinese_source": self.is_chinese_source,
         }
     
     @classmethod
@@ -61,6 +69,9 @@ class NewsItem:
             pub_date=pub_date,
             summary=data.get("summary", ""),
             score=data.get("score", 0.0),
+            title_zh=data.get("title_zh", ""),
+            summary_zh=data.get("summary_zh", ""),
+            is_chinese_source=data.get("is_chinese_source", False),
         )
 
 

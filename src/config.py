@@ -4,7 +4,7 @@
 """
 import os
 from dataclasses import dataclass, field
-from typing import List, Dict
+from typing import List, Dict, Set
 
 
 @dataclass
@@ -52,6 +52,28 @@ class RedditConfig:
     @property
     def is_configured(self) -> bool:
         return bool(self.client_id and self.client_secret)
+
+
+@dataclass
+class TranslationConfig:
+    """翻译配置"""
+    enabled: bool = True
+    api_key: str = ""
+    project_id: str = ""
+    target_language: str = "zh-CN"
+    
+    @classmethod
+    def from_env(cls) -> "TranslationConfig":
+        return cls(
+            enabled=os.getenv("TRANSLATION_ENABLED", "true").lower() == "true",
+            api_key=os.getenv("GOOGLE_TRANSLATE_API_KEY", ""),
+            project_id=os.getenv("GOOGLE_PROJECT_ID", ""),
+        )
+    
+    @property
+    def is_configured(self) -> bool:
+        """检查是否已配置"""
+        return bool(self.api_key)
 
 
 @dataclass
@@ -125,6 +147,11 @@ RSS_SOURCES: Dict[str, Dict] = {
     },
 }
 
+# 中文来源标识（这些来源不需要翻译）
+CHINESE_SOURCES: Set[str] = {
+    '36kr', 'huxiu', 'weibo', 'weixin',
+}
+
 # AI相关关键词
 AI_KEYWORDS: List[str] = [
     # 英文关键词
@@ -151,3 +178,6 @@ def get_reddit_config() -> RedditConfig:
 
 def get_crawler_config() -> CrawlerConfig:
     return CrawlerConfig()
+
+def get_translation_config() -> TranslationConfig:
+    return TranslationConfig.from_env()

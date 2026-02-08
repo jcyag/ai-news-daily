@@ -15,3 +15,6 @@ Jinja2>=3.1.2
 
 # 日期处理
 python-dateutil>=2.8.2
+
+# Google Translation API
+google-cloud-translate>=3.15.0

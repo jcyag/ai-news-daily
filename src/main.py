@@ -19,8 +19,9 @@ from crawlers import (
     WeiboCrawler,
 )
 from crawlers.rss_crawler import create_all_rss_crawlers
-from processors import AIKeywordFilter, Deduplicator, NewsRanker
+from processors import AIKeywordFilter, Deduplicator, NewsRanker, Translator
 from notifier import EmailSender
+from config import get_translation_config
 
 # 配置日志
 logging.basicConfig(
@@ -91,8 +92,8 @@ def collect_news() -> List[NewsItem]:
     return all_items
 
 
-def process_news(items: List[NewsItem], top_n: int = 10) -> List[NewsItem]:
-    """处理新闻：过滤、去重、排序"""
+def process_news(items: List[NewsItem], top_n: int = 30) -> List[NewsItem]:
+    """处理新闻：过滤、去重、排序、翻译"""
     
     # 1. AI关键词过滤
     logger.info("正在进行AI关键词过滤...")
@@ -112,6 +113,23 @@ def process_news(items: List[NewsItem], top_n: int = 10) -> List[NewsItem]:
     logger.info(f"正在排序并选取Top {top_n}...")
     ranker = NewsRanker(top_n=top_n)
     top_items = ranker.rank(unique_items)
+    
+    # 4. 翻译（新增步骤）
+    trans_config = get_translation_config()
+    if trans_config.enabled and trans_config.is_configured:
+        logger.info("=" * 50)
+        logger.info("正在翻译新闻...")
+        try:
+            translator = Translator(trans_config)
+            top_items = translator.translate_batch(top_items)
+            logger.info("翻译完成")
+        except Exception as e:
+            logger.error(f"翻译过程出错，将发送未翻译版本: {e}")
+    else:
+        if not trans_config.enabled:
+            logger.info("翻译功能已禁用")
+        else:
+            logger.warning("翻译 API 未配置，跳过翻译")
     
     return top_items
 
@@ -146,7 +164,7 @@ def main():
             logger.error("未能获取任何新闻，退出")
             sys.exit(1)
         
-        # 2. 处理新闻
+        # 2. 处理新闻（含翻译）
         top_news = process_news(all_news, top_n=30)
         
         if not top_news:
@@ -157,7 +175,8 @@ def main():
         logger.info("=" * 60)
         logger.info(f"最终选出 {len(top_news)} 条新闻:")
         for i, item in enumerate(top_news, 1):
-            logger.info(f"  {i}. [{item.source_name}] {item.title[:50]}...")
+            title_display = item.title_zh if item.title_zh else item.title
+            logger.info(f"  {i}. [{item.source_name}] {title_display[:50]}...")
         
         # 4. 发送邮件
         logger.info("=" * 60)

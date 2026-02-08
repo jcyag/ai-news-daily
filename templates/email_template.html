@@ -85,6 +85,14 @@
         .news-title a:hover {
             color: #667eea;
         }
+        .original-title {
+            font-size: 13px;
+            color: #888;
+            font-weight: normal;
+            margin-top: 6px;
+            line-height: 1.4;
+            padding-left: 32px;
+        }
         .news-meta {
             font-size: 12px;
             color: #888;
@@ -102,6 +110,29 @@
             color: #555;
             margin: 0;
             line-height: 1.7;
+        }
+        .original-summary {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        .original-summary summary {
+            cursor: pointer;
+            color: #667eea;
+            font-size: 12px;
+            user-select: none;
+        }
+        .original-summary summary:hover {
+            color: #5a6fd6;
+        }
+        .original-text {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #e0e0e0;
+            color: #666;
+            line-height: 1.6;
         }
         .read-more {
             display: inline-block;
@@ -148,6 +179,9 @@
             .news-item {
                 padding: 12px;
             }
+            .original-title {
+                padding-left: 0;
+            }
         }
     </style>
 </head>
@@ -164,17 +198,45 @@
             <div class="news-item">
                 <h3 class="news-title">
                     <span class="news-number">{{ loop.index }}</span>
-                    <a href="{{ item.url }}" target="_blank">{{ item.title }}</a>
+                    {% if item.title_zh %}
+                        {# 有翻译：显示中文标题 #}
+                        <a href="{{ item.url }}" target="_blank">{{ item.title_zh }}</a>
+                    {% else %}
+                        {# 无翻译：显示原标题 #}
+                        <a href="{{ item.url }}" target="_blank">{{ item.title }}</a>
+                    {% endif %}
                 </h3>
+                
+                {% if item.title_zh %}
+                <div class="original-title">原文: {{ item.title }}</div>
+                {% endif %}
+                
                 <div class="news-meta">
                     <span class="source">{{ item.source_name }}</span>
                     {% if item.pub_date %}
                     <span class="time">{{ item.pub_date.strftime('%m-%d %H:%M') }}</span>
                     {% endif %}
                 </div>
-                {% if item.summary %}
-                <p class="news-summary">{{ item.summary[:200] }}{% if item.summary|length > 200 %}...{% endif %}</p>
+                
+                {% if item.summary or item.summary_zh %}
+                <p class="news-summary">
+                    {% if item.summary_zh %}
+                        {# 显示中文摘要 #}
+                        {{ item.summary_zh[:200] }}{% if item.summary_zh|length > 200 %}...{% endif %}
+                        
+                        {% if item.summary %}
+                        <details class="original-summary">
+                            <summary>查看英文原文</summary>
+                            <div class="original-text">{{ item.summary }}</div>
+                        </details>
+                        {% endif %}
+                    {% else %}
+                        {# 无翻译：显示原摘要 #}
+                        {{ item.summary[:200] }}{% if item.summary|length > 200 %}...{% endif %}
+                    {% endif %}
+                </p>
                 {% endif %}
+                
                 <a href="{{ item.url }}" target="_blank" class="read-more">阅读原文 &rarr;</a>
             </div>
             {% endfor %}
@@ -182,9 +244,9 @@
         
         <div class="footer">
             <p>由 <strong>AI News Daily</strong> 自动生成并发送</p>
-            <p>数据来源: 36氪 · 虎嗅 · TechCrunch · The Verge · Hacker News · Reddit · 搜狗</p>
+            <p>数据来源: Hugging Face · 36氪 · 虎嗅 · TechCrunch · The Verge · Hacker News · Reddit · 微信 · 微博</p>
             <p style="margin-top: 12px;">
-                <a href="https://github.com/your-username/ai-news-daily">查看源码</a>
+                <a href="https://github.com/jcyag/ai-news-daily">查看源码</a>
             </p>
         </div>
     </div>

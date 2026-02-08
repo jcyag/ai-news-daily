@@ -32,9 +32,15 @@ jobs:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          
           # Reddit API配置 (可选)
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          
+          # 翻译配置
+          GOOGLE_TRANSLATE_API_KEY: ${{ secrets.GOOGLE_TRANSLATE_API_KEY }}
+          GOOGLE_PROJECT_ID: ${{ secrets.GOOGLE_PROJECT_ID }}
+          TRANSLATION_ENABLED: "true"
         run: |
           cd src
           python main.py
