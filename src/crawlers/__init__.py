@@ -11,6 +11,7 @@ from crawlers.reddit import RedditCrawler
 from crawlers.sogou import SogouCrawler
 from crawlers.huggingface import HuggingFaceCrawler
 from crawlers.nitter import NitterCrawler
+from crawlers.wechat import WeixinCrawler
 
 __all__ = [
     'BaseCrawler',
@@ -21,4 +22,5 @@ __all__ = [
     'SogouCrawler',
     'HuggingFaceCrawler',
     'NitterCrawler',
+    'WeixinCrawler',
 ]
