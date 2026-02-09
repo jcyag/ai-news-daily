@@ -2,9 +2,7 @@ name: Daily AI News
 
 on:
   schedule:
-    # 临时测试时间：北京时间 09:20 (UTC 01:20)
-    - cron: '20 1 * * *'
-  # 支持手动触发测试
+    - cron: '5 2 * * *'
   workflow_dispatch:
 
 jobs:
@@ -12,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,7 +25,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      - name: Run AI News Crawler & Check Subscriptions
+      - name: Run main script
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
@@ -42,18 +39,9 @@ jobs:
           cd src
           python main.py
       
-      - name: Commit and Push new subscribers
+      - name: Sync subscribers
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add data/subscribers.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "docs: 自动更新订阅者列表 [skip ci]" && git push)
-
-      - name: Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: error-logs
-          path: |
-            src/*.log
-          retention-days: 7
+          git diff --quiet && git diff --staged --quiet || (git commit -m "docs: 自动同步订阅列表 [skip ci]" && git push)
