@@ -4,20 +4,36 @@ import logging
 import os
 import re
 import smtplib
+import sys
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.utils import formatdate, parseaddr
 from pathlib import Path
 from typing import Set, List, Dict, Optional
 
+# 将项目根目录和src目录添加到路径
+# __file__ 是 src/notifier/subscriber_manager.py
+# parent 是 src/notifier
+# parent.parent 是 src
+current_file = Path(__file__).resolve()
+src_dir = current_file.parent.parent
+sys.path.insert(0, str(src_dir))
+
 # 导入配置
-from config import get_email_config
+try:
+    from config import get_email_config
+except ImportError:
+    # 兼容直接从 root 运行的情况
+    sys.path.insert(0, str(src_dir.parent))
+    from src.config import get_email_config
 
 logger = logging.getLogger(__name__)
 
 class SubscriberManager:
     def __init__(self):
-        self.data_dir = Path(__file__).parent.parent.parent / "data"
+        # data 目录在项目根目录
+        self.root_dir = src_dir.parent
+        self.data_dir = self.root_dir / "data"
         self.subscriber_file = self.data_dir / "subscribers.txt"
         self.data_dir.mkdir(exist_ok=True)
         
@@ -68,17 +84,19 @@ class SubscriberManager:
                             full_text = (subject + body).replace(" ", "").replace("\n", "").replace("\r", "")
 
                             # 3. 意图识别 (正则表达式)
-                            # 退订意图
                             unsub_pattern = re.compile(r'(取消订阅|退订|停止|取消|unsubscribe|stop).*(AI)?(资讯)?日报', re.IGNORECASE)
-                            # 订阅意图
                             sub_pattern = re.compile(r'(订阅|加入|启动|开始|subscribe|start).*(AI)?(资讯)?日报', re.IGNORECASE)
-                            # 模糊意图
                             ambiguous_pattern = re.compile(r'AI资讯日报|AI日报', re.IGNORECASE)
 
-                            if unsub_pattern.search(full_text):
+                            unsub_match = unsub_pattern.search(full_text)
+                            sub_match = sub_pattern.search(full_text)
+
+                            if unsub_match:
                                 user_intents[email_addr] = 'unsubscribe'
-                            elif sub_pattern.search(full_text):
+                                logger.info(f"检测到退订意图: {email_addr} (匹配: {unsub_match.group()})")
+                            elif sub_match:
                                 user_intents[email_addr] = 'subscribe'
+                                logger.info(f"检测到订阅意图: {email_addr} (匹配: {sub_match.group()})")
                             elif ambiguous_pattern.search(full_text):
                                 if email_addr not in user_intents:
                                     user_intents[email_addr] = 'invalid'

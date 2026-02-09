@@ -43,6 +43,13 @@ jobs:
       - name: Sync subscribers
         run: |
           git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.name "GitHub Action Bot"
+          mkdir -p data
+          touch data/subscribers.txt
           git add data/subscribers.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "docs: 自动同步订阅列表 [skip ci]" && git push)
+          if git diff --staged --quiet; then
+            echo "No changes to sync."
+          else
+            git commit -m "docs: 自动同步订阅列表 [skip ci]"
+            git push
+          fi

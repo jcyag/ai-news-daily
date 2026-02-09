@@ -2,9 +2,8 @@ name: Hourly Subscriber Sync
 
 on:
   schedule:
-    # 每小时运行一次 (整点过后 15 分钟)
     - cron: '15 * * * *'
-  workflow_dispatch: # 支持手动触发
+  workflow_dispatch:
 
 jobs:
   sync-subscribers:
@@ -31,13 +30,22 @@ jobs:
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          PYTHONPATH: ${{ github.workspace }}/src
         run: |
-          cd src/notifier
-          python subscriber_manager.py
+          python src/notifier/subscriber_manager.py
       
       - name: Commit and Push Changes
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
+          # 确保 data 目录被包含
+          mkdir -p data
+          touch data/subscribers.txt
           git add data/subscribers.txt
-          git diff --quiet && git diff --staged --quiet || (git commit -m "docs: 自动同步订阅名单 [skip ci]" && git push)
+          # 检查是否有实际变动
+          if git diff --staged --quiet; then
+            echo "No changes in subscriber list."
+          else
+            git commit -m "docs: 自动同步订阅名单 [skip ci]"
+            git push
+          fi
