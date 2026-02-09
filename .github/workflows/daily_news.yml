@@ -2,7 +2,8 @@ name: Daily AI News
 
 on:
   schedule:
-    - cron: '5 2 * * *'
+    # 北京时间 08:23 (UTC 00:23)，避开整点高峰，减少延迟
+    - cron: '23 0 * * *'
   workflow_dispatch:
 
 jobs:
