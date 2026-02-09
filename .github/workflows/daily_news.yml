@@ -2,8 +2,8 @@ name: Daily AI News
 
 on:
   schedule:
-    # 改为北京时间 08:05 (UTC 00:05)，避开 08:00 的整点触发高峰，减少延迟
-    - cron: '5 0 * * *'
+    # 临时测试时间：北京时间 09:20 (UTC 01:20)
+    - cron: '20 1 * * *'
   # 支持手动触发测试
   workflow_dispatch:
 
@@ -11,7 +11,7 @@ jobs:
   send-news:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # 允许修改仓库内容
+      contents: write
     
     steps:
       - name: Checkout repository
@@ -30,16 +30,11 @@ jobs:
       
       - name: Run AI News Crawler & Check Subscriptions
         env:
-          # 邮件配置
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          
-          # Reddit API配置 (可选)
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
-          
-          # 翻译配置
           GOOGLE_TRANSLATE_API_KEY: ${{ secrets.GOOGLE_TRANSLATE_API_KEY }}
           GOOGLE_PROJECT_ID: ${{ secrets.GOOGLE_PROJECT_ID }}
           TRANSLATION_ENABLED: "true"
@@ -52,7 +47,6 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add data/subscribers.txt
-          # 只有在有变化时才 commit
           git diff --quiet && git diff --staged --quiet || (git commit -m "docs: 自动更新订阅者列表 [skip ci]" && git push)
 
       - name: Upload logs on failure
