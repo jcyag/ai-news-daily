@@ -2,8 +2,8 @@ name: Daily AI News
 
 on:
   schedule:
-    # 北京时间早上8点 = UTC 0点
-    - cron: '0 0 * * *'
+    # 改为北京时间 08:05 (UTC 00:05)，避开 08:00 的整点触发高峰，减少延迟
+    - cron: '5 0 * * *'
   # 支持手动触发测试
   workflow_dispatch:
 
