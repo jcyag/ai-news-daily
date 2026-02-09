@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.utils import formatdate
 from pathlib import Path
-from typing import Set, List
+from typing import Set, List, Dict
 
 # 导入配置
 from config import get_email_config
@@ -27,7 +27,7 @@ class SubscriberManager:
         self.imap_server = "imap.gmail.com"
 
     def process_all_requests(self):
-        """处理所有订阅和取消订阅请求"""
+        """处理所有订阅和取消订阅请求，遵循‘最后一次操作为准’原则"""
         if not self.user or not self.password:
             logger.error("未配置邮件账户，无法处理订阅请求")
             return
@@ -38,7 +38,7 @@ class SubscriberManager:
             mail.login(self.user, self.password)
             mail.select("inbox")
 
-            # 计算 7 天前的日期，格式为 DD-Mon-YYYY (IMAP 标准)
+            # 计算 7 天前的日期 (IMAP 标准格式)
             since_date = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
             search_query = f'(SINCE "{since_date}")'
             
@@ -49,11 +49,12 @@ class SubscriberManager:
                 logger.info("未能获取邮件列表")
                 return
             
+            # 邮件编号按递增排序，即越往后邮件越新
             message_nums = messages[0].split()
-            logger.info(f"发现 {len(message_nums)} 封符合时间条件的邮件，正在扫描关键字...")
+            logger.info(f"发现 {len(message_nums)} 封最近邮件，正在分析用户最终意图...")
 
-            new_subs = set()
-            unsub_subs = set()
+            # 使用字典存储每个用户的最后意图: {email: 'subscribe'|'unsubscribe'}
+            user_intents: Dict[str, str] = {}
 
             for num in message_nums:
                 try:
@@ -62,44 +63,12 @@ class SubscriberManager:
                         if isinstance(response_part, tuple):
                             msg = email.message_from_bytes(response_part[1])
                             
-                            # 解析标题
-                            subject_raw = msg.get("Subject", "")
-                            subject = ""
-                            try:
-                                from email.header import decode_header
-                                subject_parts = decode_header(subject_raw)
-                                for part, encoding in subject_parts:
-                                    if isinstance(part, bytes):
-                                        subject += part.decode(encoding or 'utf-8', errors='ignore')
-                                    else:
-                                        subject += part
-                            except Exception:
-                                subject = str(subject_raw)
+                            # 1. 解析标题和正文
+                            subject = self._decode_subject(msg.get("Subject", ""))
+                            body = self._get_body(msg)
+                            content = (subject + body).replace(" ", "").replace("\n", "").replace("\r", "")
                             
-                            # 获取正文
-                            body = ""
-                            if msg.is_multipart():
-                                for part in msg.walk():
-                                    if part.get_content_type() == "text/plain":
-                                        try:
-                                            body_bytes = part.get_payload(decode=True)
-                                            if isinstance(body_bytes, bytes):
-                                                body = body_bytes.decode('utf-8', errors='ignore')
-                                        except Exception:
-                                            pass
-                                        break
-                            else:
-                                try:
-                                    body_bytes = msg.get_payload(decode=True)
-                                    if isinstance(body_bytes, bytes):
-                                        body = body_bytes.decode('utf-8', errors='ignore')
-                                except Exception:
-                                    pass
-
-                            # 合并并清理文本，用于匹配
-                            full_content = (subject + body).replace(" ", "").replace("\n", "").replace("\r", "")
-                            
-                            # 提取发件人
+                            # 2. 提取发件人
                             from_ = msg.get("From", "")
                             email_addr_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', from_)
                             if not email_addr_match:
@@ -107,47 +76,85 @@ class SubscriberManager:
                             
                             email_addr = email_addr_match.group(0).lower()
 
-                            if "订阅AI资讯日报" in full_content:
-                                logger.info(f"匹配到订阅请求: {email_addr}")
-                                new_subs.add(email_addr)
-                            elif "取消订阅AI资讯日报" in full_content:
-                                logger.info(f"匹配到取消订阅请求: {email_addr}")
-                                unsub_subs.add(email_addr)
+                            # 3. 识别操作（越晚收到的邮件会覆盖先前的意向）
+                            if "取消订阅AI资讯日报" in content:
+                                user_intents[email_addr] = 'unsubscribe'
+                                logger.debug(f"检测到指令 [退订]: {email_addr}")
+                            elif "订阅AI资讯日报" in content:
+                                user_intents[email_addr] = 'subscribe'
+                                logger.debug(f"检测到指令 [订阅]: {email_addr}")
+                                
                 except Exception as e:
                     logger.error(f"解析邮件 {num} 失败: {e}")
 
             mail.logout()
-            self._handle_updates(new_subs, unsub_subs)
+            
+            # 4. 根据最终意向更新列表
+            if user_intents:
+                self._apply_intents(user_intents)
+            else:
+                logger.info("未发现任何有效的订阅或退订指令")
 
         except Exception as e:
             logger.error(f"处理订阅请求时发生异常: {e}")
 
-    def _handle_updates(self, new_subs: Set[str], unsub_subs: Set[str]):
-        """执行文件更新并发送通知"""
+    def _decode_subject(self, subject_raw: str) -> str:
+        """安全解码邮件标题"""
+        try:
+            from email.header import decode_header
+            parts = decode_header(subject_raw)
+            decoded = ""
+            for part, encoding in parts:
+                if isinstance(part, bytes):
+                    decoded += part.decode(encoding or 'utf-8', errors='ignore')
+                else:
+                    decoded += part
+            return decoded
+        except Exception:
+            return str(subject_raw)
+
+    def _get_body(self, msg) -> str:
+        """提取邮件正文文本"""
+        body = ""
+        if msg.is_multipart():
+            for part in msg.walk():
+                if part.get_content_type() == "text/plain":
+                    try:
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            body = payload.decode('utf-8', errors='ignore')
+                    except Exception: pass
+                    break
+        else:
+            try:
+                payload = msg.get_payload(decode=True)
+                if isinstance(payload, bytes):
+                    body = payload.decode('utf-8', errors='ignore')
+            except Exception: pass
+        return body
+
+    def _apply_intents(self, intents: Dict[str, str]):
+        """应用最终意向到订阅列表"""
         current_subs = self.load_subscribers()
+        original_subs = set(current_subs)
         
-        added_count = 0
-        removed_count = 0
+        for email_addr, action in intents.items():
+            if action == 'subscribe':
+                if email_addr not in current_subs:
+                    current_subs.add(email_addr)
+                    self._send_feedback(email_addr, "订阅成功", "您已成功订阅AI资讯日报。")
+                    logger.info(f"新用户订阅: {email_addr}")
+            elif action == 'unsubscribe':
+                if email_addr in current_subs:
+                    current_subs.remove(email_addr)
+                    self._send_feedback(email_addr, "已取消订阅AI资讯日报", "您已成功取消订阅。")
+                    logger.info(f"用户退订: {email_addr}")
 
-        # 处理新增
-        for email_addr in new_subs:
-            if email_addr not in current_subs:
-                current_subs.add(email_addr)
-                self._send_feedback(email_addr, "订阅成功", "您已成功订阅AI资讯日报，我们将每天为您推送最新的AI领域资讯。")
-                added_count += 1
-
-        # 处理取消
-        for email_addr in unsub_subs:
-            if email_addr in current_subs:
-                current_subs.remove(email_addr)
-                self._send_feedback(email_addr, "已取消订阅AI资讯日报", "您已成功取消订阅。如果您以后想再次订阅，只需向我发送“订阅AI资讯日报”即可。")
-                removed_count += 1
-
-        if added_count > 0 or removed_count > 0:
+        if current_subs != original_subs:
             with open(self.subscriber_file, "w", encoding="utf-8") as f:
                 for addr in sorted(current_subs):
                     f.write(f"{addr}\n")
-            logger.info(f"订阅列表已更新: 新增 {added_count}, 移除 {removed_count}")
+            logger.info("订阅列表已完成持久化更新")
 
     def _send_feedback(self, to_email: str, subject: str, content: str):
         """发送反馈邮件"""
@@ -162,9 +169,9 @@ class SubscriberManager:
                 server.starttls()
                 server.login(self.user, self.password)
                 server.sendmail(self.user, [to_email], msg.as_string())
-            logger.info(f"已向 {to_email} 发送反馈邮件: {subject}")
+            logger.debug(f"已发送回执给 {to_email}")
         except Exception as e:
-            logger.error(f"发送反馈邮件到 {to_email} 失败: {e}")
+            logger.error(f"发送回执到 {to_email} 失败: {e}")
 
     def load_subscribers(self) -> Set[str]:
         if not self.subscriber_file.exists():
