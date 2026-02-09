@@ -2,6 +2,7 @@ name: Hourly Subscriber Sync
 
 on:
   schedule:
+    # 每小时运行一次 (整点过后 15 分钟)
     - cron: '15 * * * *'
   workflow_dispatch:
 
@@ -14,6 +15,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 获取完整历史以支持 rebase
       
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,14 +41,41 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
-          # 确保 data 目录被包含
+          
+          # 确保目录存在
           mkdir -p data
           touch data/subscribers.txt
+          
           git add data/subscribers.txt
-          # 检查是否有实际变动
+          
           if git diff --staged --quiet; then
             echo "No changes in subscriber list."
           else
             git commit -m "docs: 自动同步订阅名单 [skip ci]"
-            git push
+            
+            # 增加重试逻辑处理 500 错误或冲突
+            MAX_RETRIES=3
+            RETRY_COUNT=0
+            SUCCESS=false
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              echo "Pushing changes (Attempt $((RETRY_COUNT+1)))..."
+              # 先同步远程可能存在的变动（如日报生成的变动）
+              git pull --rebase origin main
+              
+              if git push origin main; then
+                echo "Successfully pushed changes."
+                SUCCESS=true
+                break
+              else
+                echo "Push failed, retrying in 5 seconds..."
+                RETRY_COUNT=$((RETRY_COUNT+1))
+                sleep 5
+              fi
+            done
+            
+            if [ "$SUCCESS" = false ]; then
+              echo "Failed to push changes after $MAX_RETRIES attempts."
+              exit 1
+            fi
           fi

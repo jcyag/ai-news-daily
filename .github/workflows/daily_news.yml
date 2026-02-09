@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -44,12 +46,38 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Bot"
+          
           mkdir -p data
           touch data/subscribers.txt
+          
           git add data/subscribers.txt
+          
           if git diff --staged --quiet; then
             echo "No changes to sync."
           else
             git commit -m "docs: 自动同步订阅列表 [skip ci]"
-            git push
+            
+            MAX_RETRIES=3
+            RETRY_COUNT=0
+            SUCCESS=false
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              echo "Pushing changes (Attempt $((RETRY_COUNT+1)))..."
+              git pull --rebase origin main
+              
+              if git push origin main; then
+                echo "Successfully pushed changes."
+                SUCCESS=true
+                break
+              else
+                echo "Push failed, retrying in 5 seconds..."
+                RETRY_COUNT=$((RETRY_COUNT+1))
+                sleep 5
+              fi
+            done
+            
+            if [ "$SUCCESS" = false ]; then
+              echo "Failed to push changes after $MAX_RETRIES attempts."
+              exit 1
+            fi
           fi
