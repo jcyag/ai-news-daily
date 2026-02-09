@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import smtplib
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.utils import formatdate
 from pathlib import Path
@@ -37,14 +38,19 @@ class SubscriberManager:
             mail.login(self.user, self.password)
             mail.select("inbox")
 
-            # 1. 查找所有未读邮件
-            status, messages = mail.search(None, 'UNSEEN')
+            # 计算 7 天前的日期，格式为 DD-Mon-YYYY (IMAP 标准)
+            since_date = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
+            search_query = f'(SINCE "{since_date}")'
+            
+            logger.info(f"正在扫描自 {since_date} 以来的一周内邮件...")
+            status, messages = mail.search(None, search_query)
+            
             if status != 'OK':
-                logger.info("未能获取未读邮件列表")
+                logger.info("未能获取邮件列表")
                 return
             
             message_nums = messages[0].split()
-            logger.info(f"发现 {len(message_nums)} 封未读邮件，正在扫描关键字...")
+            logger.info(f"发现 {len(message_nums)} 封符合时间条件的邮件，正在扫描关键字...")
 
             new_subs = set()
             unsub_subs = set()
@@ -104,11 +110,9 @@ class SubscriberManager:
                             if "订阅AI资讯日报" in full_content:
                                 logger.info(f"匹配到订阅请求: {email_addr}")
                                 new_subs.add(email_addr)
-                                mail.store(num, '+FLAGS', '\\Seen') # 标记已读
                             elif "取消订阅AI资讯日报" in full_content:
                                 logger.info(f"匹配到取消订阅请求: {email_addr}")
                                 unsub_subs.add(email_addr)
-                                mail.store(num, '+FLAGS', '\\Seen') # 标记已读
                 except Exception as e:
                     logger.error(f"解析邮件 {num} 失败: {e}")
 
@@ -117,7 +121,6 @@ class SubscriberManager:
 
         except Exception as e:
             logger.error(f"处理订阅请求时发生异常: {e}")
-            logger.error("请确保 Gmail 已开启 IMAP 服务，并使用了正确的‘应用专用密码’。")
 
     def _handle_updates(self, new_subs: Set[str], unsub_subs: Set[str]):
         """执行文件更新并发送通知"""
