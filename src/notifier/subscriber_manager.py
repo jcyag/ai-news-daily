@@ -6,9 +6,9 @@ import re
 import smtplib
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
-from email.utils import formatdate
+from email.utils import formatdate, parseaddr
 from pathlib import Path
-from typing import Set, List, Dict
+from typing import Set, List, Dict, Optional
 
 # 导入配置
 from config import get_email_config
@@ -27,15 +27,18 @@ class SubscriberManager:
         self.imap_server = "imap.gmail.com"
 
     def process_all_requests(self):
-        """处理订阅请求，增强匹配稳定性"""
+        """处理订阅请求，遵循‘最后一次操作为准’并支持纠错引导"""
         if not self.user or not self.password:
+            logger.error("未配置邮件账户，跳过订阅检查")
             return
 
         try:
+            logger.info(f"正在连接 IMAP 服务器: {self.imap_server}...")
             mail = imaplib.IMAP4_SSL(self.imap_server)
             mail.login(self.user, self.password)
             mail.select("inbox")
 
+            # 扫描最近 7 天的邮件
             since_date = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
             search_query = f'(SINCE "{since_date}")'
             status, messages = mail.search(None, search_query)
@@ -43,7 +46,9 @@ class SubscriberManager:
             if status != 'OK': return
 
             message_nums = messages[0].split()
-            user_intents: Dict[str, str] = {}
+            logger.info(f"发现 {len(message_nums)} 封最近邮件，正在进行意图分析...")
+
+            user_intents: Dict[str, str] = {} # {email: 'subscribe'|'unsubscribe'|'invalid'}
 
             for num in message_nums:
                 try:
@@ -51,88 +56,110 @@ class SubscriberManager:
                     for response_part in msg_data:
                         if isinstance(response_part, tuple):
                             msg = email.message_from_bytes(response_part[1])
-                            subject = self._decode_subject(msg.get("Subject", ""))
-                            body = self._get_body(msg)
                             
-                            # 提取发件人
-                            from_ = msg.get("From", "")
-                            email_addr_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', from_)
-                            if not email_addr_match: continue
-                            email_addr = email_addr_match.group(0).lower().strip()
+                            # 1. 提取发件人 (标准化)
+                            _, email_addr = parseaddr(msg.get("From", ""))
+                            if not email_addr: continue
+                            email_addr = email_addr.lower().strip()
 
-                            # 增强匹配逻辑：移除所有空白字符后搜索
-                            full_text = (subject + body).replace(" ", "").replace("\n", "").replace("\t", "").replace("\r", "")
-                            
-                            # 1. 退订意向识别 (更广的关键词覆盖)
+                            # 2. 解析标题和内容
+                            subject = self._decode_header(msg.get("Subject", ""))
+                            body = self._get_text_content(msg)
+                            full_text = (subject + body).replace(" ", "").replace("\n", "").replace("\r", "")
+
+                            # 3. 意图识别 (正则表达式)
+                            # 退订意图
                             unsub_pattern = re.compile(r'(取消订阅|退订|停止|取消|unsubscribe|stop).*(AI)?(资讯)?日报', re.IGNORECASE)
-                            # 2. 订阅意向识别
+                            # 订阅意图
                             sub_pattern = re.compile(r'(订阅|加入|启动|开始|subscribe|start).*(AI)?(资讯)?日报', re.IGNORECASE)
+                            # 模糊意图
+                            ambiguous_pattern = re.compile(r'AI资讯日报|AI日报', re.IGNORECASE)
 
-                            unsub_match = unsub_pattern.search(full_text)
-                            sub_match = sub_pattern.search(full_text)
-
-                            if unsub_match:
+                            if unsub_pattern.search(full_text):
                                 user_intents[email_addr] = 'unsubscribe'
-                                logger.info(f"检测到退订意图: {email_addr} (匹配内容: {unsub_match.group()})")
-                            elif sub_match:
+                            elif sub_pattern.search(full_text):
                                 user_intents[email_addr] = 'subscribe'
-                                logger.info(f"检测到订阅意图: {email_addr} (匹配内容: {sub_match.group()})")
+                            elif ambiguous_pattern.search(full_text):
+                                if email_addr not in user_intents:
+                                    user_intents[email_addr] = 'invalid'
                                 
                 except Exception as e:
                     logger.error(f"解析邮件失败: {e}")
 
             mail.logout()
+            
             if user_intents:
                 self._apply_intents(user_intents)
+            else:
+                logger.info("未发现新的订阅相关邮件")
 
         except Exception as e:
             logger.error(f"IMAP操作异常: {e}")
 
-    def _decode_subject(self, subject_raw: str) -> str:
+    def _decode_header(self, raw_str: str) -> str:
         try:
             from email.header import decode_header
-            parts = decode_header(subject_raw)
+            parts = decode_header(raw_str)
             return "".join([
                 part.decode(enc or 'utf-8', errors='ignore') if isinstance(part, bytes) else part 
                 for part, enc in parts
             ])
-        except Exception: return str(subject_raw)
+        except Exception: return str(raw_str)
 
-    def _get_body(self, msg) -> str:
-        body = ""
+    def _get_text_content(self, msg) -> str:
+        text = ""
         if msg.is_multipart():
             for part in msg.walk():
-                if part.get_content_type() == "text/plain":
+                content_type = part.get_content_type()
+                if content_type == "text/plain":
                     try:
                         payload = part.get_payload(decode=True)
-                        if payload: body = payload.decode('utf-8', errors='ignore')
+                        if payload: text += payload.decode('utf-8', errors='ignore')
                     except Exception: pass
-                    break
+                elif content_type == "text/html":
+                    try:
+                        payload = part.get_payload(decode=True)
+                        if payload:
+                            html_content = payload.decode('utf-8', errors='ignore')
+                            text += re.sub(r'<[^>]+>', '', html_content)
+                    except Exception: pass
         else:
             try:
                 payload = msg.get_payload(decode=True)
-                if isinstance(payload, bytes): body = payload.decode('utf-8', errors='ignore')
+                if isinstance(payload, bytes):
+                    text = payload.decode('utf-8', errors='ignore')
             except Exception: pass
-        return body
+        return text
 
     def _apply_intents(self, intents: Dict[str, str]):
         current_subs = self.load_subscribers()
         original_subs = set(current_subs)
         
         for email_addr, action in intents.items():
-            if action == 'subscribe' and email_addr not in current_subs:
-                current_subs.add(email_addr)
-                self._send_feedback(email_addr, "订阅成功", "您已成功订阅AI资讯日报。")
-            elif action == 'unsubscribe' and email_addr in current_subs:
-                current_subs.remove(email_addr)
-                self._send_feedback(email_addr, "已取消订阅AI资讯日报", "您已成功取消订阅。")
-                logger.info(f"已从列表中移除: {email_addr}")
+            if action == 'subscribe':
+                if email_addr not in current_subs:
+                    current_subs.add(email_addr)
+                    self._send_feedback(email_addr, "正式订阅成功", "您已成功订阅 AI 资讯日报。")
+                    logger.info(f"正式订阅: {email_addr}")
+            elif action == 'unsubscribe':
+                if email_addr in current_subs:
+                    current_subs.remove(email_addr)
+                    self._send_feedback(email_addr, "退订成功确认", "您已成功退订 AI 资讯日报。")
+                    logger.info(f"正式退订: {email_addr}")
+            elif action == 'invalid':
+                if email_addr not in current_subs:
+                    self._send_feedback(
+                        email_addr, 
+                        "指令未识别", 
+                        "系统收到您的请求，但无法确定您的意图。请发送“订阅AI资讯日报”或“退订AI资讯日报”进行操作。"
+                    )
+                    logger.info(f"发送引导邮件: {email_addr}")
 
         if current_subs != original_subs:
             with open(self.subscriber_file, "w", encoding="utf-8") as f:
                 for addr in sorted(current_subs):
                     f.write(f"{addr}\n")
-            logger.info("订阅列表已更新并保存")
+            logger.info("订阅列表已更新并同步")
 
     def _send_feedback(self, to_email: str, subject: str, content: str):
         msg = MIMEText(content, "plain", "utf-8")
@@ -146,7 +173,7 @@ class SubscriberManager:
                 server.login(self.user, self.password)
                 server.sendmail(self.user, [to_email], msg.as_string())
         except Exception as e:
-            logger.error(f"发送回执失败: {e}")
+            logger.error(f"发送回执邮件失败 [{to_email}]: {e}")
 
     def load_subscribers(self) -> Set[str]:
         if not self.subscriber_file.exists(): return set()
@@ -154,5 +181,5 @@ class SubscriberManager:
             return {line.strip().lower() for line in f if line.strip()}
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     SubscriberManager().process_all_requests()
