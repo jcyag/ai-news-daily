@@ -122,17 +122,28 @@ RSS_SOURCES: Dict[str, Dict] = {
 CHINESE_SOURCES: Set[str] = {'36kr', 'huxiu', 'weibo', 'weixin'}
 
 AI_KEYWORDS: List[str] = [
-    "AI", "artificial intelligence", "machine learning", "deep learning",
-    "LLM", "GPT", "ChatGPT", "Claude", "Gemini", "Llama", "Mistral",
-    "neural network", "transformer", "diffusion", "generative",
-    "AGI", "OpenAI", "Anthropic", "Google DeepMind", "Meta AI",
-    "NVIDIA", "AI agent", "RAG", "fine-tuning", "RLHF", "reasoning",
-    "multimodal", "vision model", "language model", "foundation model",
-    "Copilot", "Cursor", "AI coding", "AI assistant",
+    # 模型与架构
+    "AI", "Artificial Intelligence", "LLM", "Large Language Model", "GPT-4o", "GPT-5",
+    "ChatGPT", "Claude 3.5", "Gemini 1.5", "Llama 3", "DeepSeek", "Sora", "Kling",
+    "Multimodal AI", "Diffusion Model", "Transformer", "AGI", "Generative AI",
+    "Vision Model", "Language Model", "Foundation Model", "neural network",
+    
+    # 技术与概念
+    "RAG", "AI Agents", "Autonomous Agents", "Agentic Workflow", "Fine-tuning",
+    "RLHF", "reasoning", "Machine Learning", "Deep Learning", "AI coding",
+    "Copilot", "Cursor", "AI assistant", "AI PC", "Edge AI", "AI Safety",
+    "AI Act", "AI Regulation", "AI for Science", "AI4S",
+    
+    # 公司与组织
+    "OpenAI", "Microsoft AI", "Google DeepMind", "NVIDIA", "Anthropic",
+    "Mistral AI", "Perplexity", "Groq", "Figure AI", "Moonshot AI",
+    "Meta AI", "Humanoid Robots",
+    
+    # 中文关键词
     "人工智能", "大模型", "机器学习", "深度学习", "神经网络",
     "生成式AI", "智能体", "AI芯片", "算力", "大语言模型",
     "多模态", "AI助手", "AI编程", "智谱", "百川", "文心一言",
-    "通义千问", "讯飞星火", "Kimi", "月之暗面",
+    "通义千问", "讯飞星火", "Kimi", "月之暗面", "可灵",
 ]
 
 def get_email_config() -> EmailConfig:

@@ -53,8 +53,11 @@ class NitterCrawler(BaseCrawler):
             all_items.extend(user_items)
             time.sleep(1)
             
-        # 3. 搜索AI关键词
-        search_keywords = ["AI", "LLM", "GenerativeAI"]
+        # 3. 搜索AI关键词 (增加内容基数)
+        search_keywords = [
+            "AI", "LLM", "GPT-4o", "Claude 3.5", "Llama 3", 
+            "DeepSeek", "Sora", "Generative AI", "AI Agents"
+        ]
         for kw in search_keywords:
             search_items = self._search_with_retry(kw)
             all_items.extend(search_items)
@@ -120,14 +123,17 @@ class NitterCrawler(BaseCrawler):
                     pub_date_naive = pub_date.replace(tzinfo=None)
                     if pub_date_naive < time_threshold:
                         continue
-                title = entry.get("title", "")
+                title = str(entry.get("title", ""))
+                # 移除用户名前缀 (e.g. "ylecun: ...")
                 clean_title = re.sub(r'^@?\w+:', '', title).strip()
                 if len(clean_title) < 10: continue
-                summary = entry.get("summary", "")
+
+                summary = str(entry.get("summary", ""))
                 summary = re.sub(r'<[^>]+>', '', summary).strip()
+
                 items.append(NewsItem(
                     title=clean_title[:100],
-                    url=entry.get("link", ""),
+                    url=str(entry.get("link", "")),
                     source="twitter",
                     source_name=source_name,
                     pub_date=pub_date,

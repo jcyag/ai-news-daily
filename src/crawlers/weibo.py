@@ -42,11 +42,12 @@ class WeiboCrawler(BaseCrawler):
             logger.warning(f"爬取微博热搜失败: {e}")
             
         # 2. 搜索AI关键词 (增加内容相关性)
-        try:
-            items.extend(self._search_weibo("人工智能"))
-            items.extend(self._search_weibo("AI大模型"))
-        except Exception as e:
-            logger.warning(f"搜索微博关键词失败: {e}")
+        search_keywords = ["人工智能", "AI大模型", "DeepSeek", "Sora", "生成式AI", "智能体", "可灵"]
+        for kw in search_keywords:
+            try:
+                items.extend(self._search_weibo(kw))
+            except Exception as e:
+                logger.warning(f"搜索微博关键词 '{kw}' 失败: {e}")
             
         logger.info(f"微博共获取 {len(items)} 条内容")
         return items
