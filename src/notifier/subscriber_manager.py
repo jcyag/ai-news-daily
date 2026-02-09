@@ -61,14 +61,22 @@ class SubscriberManager:
                             email_addr = email_addr_match.group(0).lower().strip()
 
                             # 增强匹配逻辑：移除所有空白字符后搜索
-                            full_text = (subject + body).replace(" ", "").replace("\n", "").replace("\t", "")
+                            full_text = (subject + body).replace(" ", "").replace("\n", "").replace("\t", "").replace("\r", "")
                             
-                            if "取消订阅" in full_text and "AI资讯日报" in full_text:
+                            # 1. 退订意向识别 (更广的关键词覆盖)
+                            unsub_pattern = re.compile(r'(取消订阅|退订|停止|取消|unsubscribe|stop).*(AI)?(资讯)?日报', re.IGNORECASE)
+                            # 2. 订阅意向识别
+                            sub_pattern = re.compile(r'(订阅|加入|启动|开始|subscribe|start).*(AI)?(资讯)?日报', re.IGNORECASE)
+
+                            unsub_match = unsub_pattern.search(full_text)
+                            sub_match = sub_pattern.search(full_text)
+
+                            if unsub_match:
                                 user_intents[email_addr] = 'unsubscribe'
-                                logger.info(f"检测到退订意图: {email_addr} (标题: {subject[:20]})")
-                            elif "订阅" in full_text and "AI资讯日报" in full_text:
+                                logger.info(f"检测到退订意图: {email_addr} (匹配内容: {unsub_match.group()})")
+                            elif sub_match:
                                 user_intents[email_addr] = 'subscribe'
-                                logger.info(f"检测到订阅意图: {email_addr} (标题: {subject[:20]})")
+                                logger.info(f"检测到订阅意图: {email_addr} (匹配内容: {sub_match.group()})")
                                 
                 except Exception as e:
                     logger.error(f"解析邮件失败: {e}")
