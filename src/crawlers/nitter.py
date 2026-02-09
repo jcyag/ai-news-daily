@@ -1,6 +1,6 @@
 """
 Twitter/X 爬虫 (通过 Nitter 实例)
-由于 Twitter 官方 API 限制，使用 Nitter 实例的 RSS 订阅作为替代
+增强稳定性与内容相关性
 """
 import logging
 import random
@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 from email.utils import parsedate_to_datetime
+import urllib.parse
 
 import feedparser
 
@@ -32,20 +33,32 @@ class NitterCrawler(BaseCrawler):
         self.current_instance = None
     
     def crawl(self) -> List[NewsItem]:
-        """爬取关注用户的推文"""
+        """爬取关注用户的推文和关键词搜索"""
         all_items = []
         
-        # 随机打乱用户顺序
+        # 1. 寻找可用实例
+        self.current_instance = self._get_working_instance()
+        if not self.current_instance:
+            logger.error("无法找到可用的 Nitter 实例，跳过 Twitter 爬取")
+            return []
+            
+        logger.info(f"使用 Nitter 实例: {self.current_instance}")
+        
+        # 2. 爬取指定大V推文
         users_to_crawl = self.users[:]
         random.shuffle(users_to_crawl)
         
-        # 尝试获取一个初始实例
-        self.current_instance = self._get_working_instance()
-        
-        for user in users_to_crawl:
+        for user in users_to_crawl[:10]: # 每次随机取10个大V
             user_items = self._crawl_user_with_retry(user)
             all_items.extend(user_items)
-            time.sleep(1) # 避免频率过快
+            time.sleep(1)
+            
+        # 3. 搜索AI关键词
+        search_keywords = ["AI", "LLM", "GenerativeAI"]
+        for kw in search_keywords:
+            search_items = self._search_with_retry(kw)
+            all_items.extend(search_items)
+            time.sleep(1)
                 
         return all_items
     
@@ -56,7 +69,6 @@ class NitterCrawler(BaseCrawler):
         
         for instance in test_instances:
             try:
-                # 尝试访问知名账号确认实例存活且返回正确的 RSS
                 resp = self.session.get(f"{instance}/jack/rss", timeout=8)
                 if resp.status_code == 200 and "<rss" in resp.text.lower():
                     return instance
@@ -65,80 +77,69 @@ class NitterCrawler(BaseCrawler):
         return None
 
     def _crawl_user_with_retry(self, username: str) -> List[NewsItem]:
-        """尝试爬取单个用户，如果失败则换实例重试"""
-        max_retries = 3
+        return self._action_with_retry(self._crawl_user_logic, username)
+
+    def _search_with_retry(self, keyword: str) -> List[NewsItem]:
+        return self._action_with_retry(self._search_logic, keyword)
+
+    def _action_with_retry(self, func, arg) -> List[NewsItem]:
+        max_retries = 2
         for attempt in range(max_retries):
             if not self.current_instance:
                 self.current_instance = self._get_working_instance()
-                if not self.current_instance:
-                    return []
-
+                if not self.current_instance: return []
             try:
-                items = self._crawl_user_logic(self.current_instance, username)
-                return items
+                return func(self.current_instance, arg)
             except Exception as e:
-                logger.warning(f"使用实例 {self.current_instance} 爬取 @{username} 失败: {e}")
-                # 标记当前实例失效，更换实例
+                logger.warning(f"使用实例 {self.current_instance} 执行失败: {e}")
                 old_instance = self.current_instance
                 self.current_instance = self._get_working_instance(exclude=old_instance)
-                if not self.current_instance:
-                    break
         return []
 
     def _crawl_user_logic(self, instance: str, username: str) -> List[NewsItem]:
-        """爬取逻辑实现"""
         rss_url = f"{instance}/{username}/rss"
-        # 先手动获取文本，检查是否是合法的 XML
+        return self._parse_nitter_rss(rss_url, f"Twitter (@{username})")
+
+    def _search_logic(self, instance: str, keyword: str) -> List[NewsItem]:
+        encoded_kw = urllib.parse.quote(keyword)
+        rss_url = f"{instance}/search/rss?f=tweets&q={encoded_kw}"
+        return self._parse_nitter_rss(rss_url, f"Twitter搜索: {keyword}")
+
+    def _parse_nitter_rss(self, rss_url: str, source_name: str) -> List[NewsItem]:
         resp = self.session.get(rss_url, timeout=10)
         resp.raise_for_status()
-        
         if "<rss" not in resp.text.lower():
-            raise ValueError("返回的内容不是有效的 RSS XML")
-
+            raise ValueError("非法的 RSS 内容")
         feed = feedparser.parse(resp.text)
-        if feed.bozo:
-            raise ValueError(f"RSS 解析错误: {feed.bozo_exception}")
-
         items = []
-        time_threshold = datetime.now() - timedelta(hours=24)
-        
+        time_threshold = datetime.now() - timedelta(hours=48)
         for entry in feed.entries:
             try:
-                # 时间过滤
                 pub_date = self._parse_date(entry)
                 if pub_date:
                     pub_date_naive = pub_date.replace(tzinfo=None)
                     if pub_date_naive < time_threshold:
                         continue
-
                 title = entry.get("title", "")
-                # 移除用户名前缀
                 clean_title = re.sub(r'^@?\w+:', '', title).strip()
-                
-                # Nitter 摘要通常包含完整推文
+                if len(clean_title) < 10: continue
                 summary = entry.get("summary", "")
-                # 简单清理摘要中的 HTML
                 summary = re.sub(r'<[^>]+>', '', summary).strip()
-
-                item = NewsItem(
-                    title=f"@{username}: {clean_title[:100]}",
+                items.append(NewsItem(
+                    title=clean_title[:100],
                     url=entry.get("link", ""),
-                    source=self.source_id,
-                    source_name=f"Twitter (@{username})",
+                    source="twitter",
+                    source_name=source_name,
                     pub_date=pub_date,
-                    summary=summary,
-                )
-                items.append(item)
-            except Exception:
-                continue
+                    summary=summary[:300],
+                    score=0.0
+                ))
+            except Exception: continue
         return items
 
     def _parse_date(self, entry) -> Optional[datetime]:
-        """解析日期"""
         date_str = entry.get("published")
-        if not date_str:
-            return None
+        if not date_str: return None
         try:
             return parsedate_to_datetime(date_str)
-        except Exception:
-            return None
+        except Exception: return None
