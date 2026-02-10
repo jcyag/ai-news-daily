@@ -2,9 +2,8 @@ name: Daily AI News
 
 on:
   schedule:
-    # 再次微调：北京时间 08:47 (UTC 00:47)
-    # 避开整点、半点及之前的 23 分，选择更冷门的时间点以降低 GitHub 调度延迟
-    - cron: '47 0 * * *'
+    # 北京时间 04:37 (UTC 20:37)
+    - cron: '37 20 * * *'
   workflow_dispatch:
 
 jobs:
